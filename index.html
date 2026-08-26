@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<title>Control de Ingreso · JDVM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#1C2B33; --paper:#F6F4EF; --panel:#FFFFFF;
+    --teal:#0E6E5C; --teal-dark:#0A5747;
+    --amber:#D98C24; --amber-bg:#FBF0DC;
+    --red:#C0392B; --red-bg:#FBEAE7;
+    --green:#3F8F5F; --green-bg:#E9F4EC;
+    --line:#E3DFD6; --muted:#6B6459;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{background:var(--paper);font-family:'Inter',sans-serif;color:var(--ink);min-height:100vh;-webkit-tap-highlight-color:transparent;}
+  .screen{max-width:480px;margin:0 auto;min-height:100vh;background:var(--paper);display:flex;flex-direction:column;}
+  .topbar{background:var(--ink);color:#fff;padding:14px 18px 12px;display:flex;align-items:center;justify-content:space-between;}
+  .origin-pill{display:flex;align-items:center;gap:7px;font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:13px;letter-spacing:.03em;background:rgba(255,255,255,.08);padding:6px 12px;border-radius:99px;border:1px solid rgba(255,255,255,.15);}
+  .origin-dot{width:8px;height:8px;border-radius:50%;background:var(--amber);}
+  .clock{font-family:'JetBrains Mono',monospace;font-size:13px;color:rgba(255,255,255,.65);}
+  .subtitle{padding:10px 18px 16px;font-size:12px;color:var(--muted);border-bottom:1px solid var(--line);background:var(--panel);}
+  .subtitle b{color:var(--ink);}
+  main{flex:1;padding:20px 18px 40px;}
+  .field-label{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:15px;margin-bottom:10px;}
+  .plate-input-row{display:flex;gap:8px;}
+  input.plate-input{flex:1;font-family:'JetBrains Mono',monospace;font-weight:700;font-size:22px;letter-spacing:.08em;text-transform:uppercase;padding:16px 14px;border:2px solid var(--ink);border-radius:10px;background:var(--panel);color:var(--ink);outline:none;}
+  input.plate-input:focus{border-color:var(--teal);box-shadow:0 0 0 3px rgba(14,110,92,.15);}
+  .btn{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:15px;border:none;border-radius:10px;padding:16px 18px;cursor:pointer;min-height:52px;display:flex;align-items:center;justify-content:center;gap:8px;transition:transform .08s ease, opacity .15s ease;}
+  .btn:active{transform:scale(.97);}
+  .btn:disabled{opacity:.5;cursor:default;}
+  .btn-primary{background:var(--teal);color:#fff;width:100%;margin-top:12px;}
+  .btn-primary:hover{background:var(--teal-dark);}
+  .btn-search{background:var(--ink);color:#fff;width:64px;flex-shrink:0;padding:0;}
+  .btn-green{background:var(--green);color:#fff;}
+  .btn-red{background:var(--red);color:#fff;}
+  .btn-camera{background:var(--ink);color:#fff;width:100%;}
+  .toggle-row{display:flex;gap:8px;margin-top:6px;}
+  .toggle{flex:1;padding:12px 6px;border-radius:10px;border:1.5px solid var(--line);text-align:center;font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:12.5px;cursor:pointer;color:var(--muted);}
+  .toggle.selected{border-color:var(--teal);background:var(--green-bg);color:var(--teal);}
+  .plate-chip{display:inline-flex;align-items:center;gap:6px;background:#fff;border:2.5px solid var(--ink);border-radius:6px;padding:8px 14px;font-family:'JetBrains Mono',monospace;font-weight:700;font-size:20px;letter-spacing:.1em;color:var(--ink);}
+  .plate-chip::before{content:'CL';font-family:'Inter',sans-serif;font-size:9px;font-weight:600;color:#fff;background:var(--teal);padding:2px 5px;border-radius:3px;letter-spacing:0;}
+  .card{background:var(--panel);border-radius:14px;padding:20px;border:1px solid var(--line);margin-top:18px;}
+  .card-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;}
+  .kv{display:flex;flex-direction:column;gap:2px;}
+  .kv .k{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;}
+  .kv .v{font-family:'JetBrains Mono',monospace;font-weight:700;font-size:15px;}
+  .status-band{margin-top:16px;padding:14px 16px;border-radius:10px;display:flex;align-items:center;justify-content:space-between;font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:14px;}
+  .status-band.ok{background:var(--green-bg);color:var(--green);}
+  .status-band.warn{background:var(--amber-bg);color:var(--amber);}
+  .status-band.exceeded{background:var(--red-bg);color:var(--red);}
+  .status-band.neutral{background:#EFEDE7;color:var(--muted);}
+  .status-band .elapsed{font-family:'JetBrains Mono',monospace;font-size:18px;font-weight:700;}
+  .btn-row{display:flex;gap:10px;margin-top:18px;}
+  .btn-row .btn{flex:1;}
+  .form-group{margin-top:16px;}
+  .form-group label{display:block;font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:8px;}
+  select.select-spot{width:100%;padding:14px;border:1.5px solid var(--line);border-radius:10px;font-family:'Inter',sans-serif;font-size:15px;background:var(--panel);color:var(--ink);}
+  .photo-box{margin-top:8px;border:2px dashed var(--line);border-radius:12px;padding:18px;text-align:center;background:var(--panel);}
+  .photo-box img{width:100%;border-radius:8px;display:block;margin-bottom:10px;}
+  .photo-box .ph-empty{color:var(--muted);font-size:13px;margin-bottom:12px;}
+  input[type=file]{display:none;}
+  .overlay{position:fixed;inset:0;background:rgba(28,43,51,.55);display:flex;align-items:flex-end;justify-content:center;z-index:50;}
+  .sheet{background:var(--panel);width:100%;max-width:480px;border-radius:18px 18px 0 0;padding:22px 20px 28px;}
+  .sheet-title{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:17px;color:var(--red);display:flex;align-items:center;gap:8px;margin-bottom:6px;}
+  .sheet p{font-size:13px;color:var(--muted);margin:0 0 16px;line-height:1.5;}
+  .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:13px;padding:12px 20px;border-radius:99px;box-shadow:0 8px 24px rgba(0,0,0,.2);z-index:60;opacity:0;pointer-events:none;transition:opacity .25s ease, transform .25s ease;text-align:center;max-width:90%;}
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(-6px);}
+  .toast.toast-red{background:var(--red);}
+  .toast.toast-green{background:var(--green);}
+  .back-link{display:inline-block;margin-top:16px;font-size:13px;color:var(--muted);cursor:pointer;text-decoration:underline;}
+</style>
+</head>
+<body>
+<div class="screen">
+  <div class="topbar">
+    <div class="origin-pill" id="originPill"><span class="origin-dot"></span> CONTROL: <span id="originLabel">VOLANTE</span></div>
+    <div class="clock" id="clock">--:--</div>
+  </div>
+  <div class="subtitle">Control de vehículos de visita · <b>JDVM</b></div>
+  <main id="app"></main>
+</div>
+<div id="toast" class="toast"></div>
+
+<script>
+/* =========================================================
+   CONFIGURA ESTO ANTES DE PUBLICAR
+   ========================================================= */
+const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzKmQnQjXhIKEjFi_PWWW_-j4Q08a9aHL-vEMuN7p5I1-BskJa5A67tIIGjva4SVSrM/exec';
+// Cambia a 'Portería' para el punto de acceso identificado como portería
+const ORIGEN = 'Volante';
+
+document.getElementById('originLabel').textContent = ORIGEN.toUpperCase();
+
+let view = { name: 'search', plate: '', tipoVehiculo: 'Visita', tempPhoto: null, finePhoto: null };
+const app = document.getElementById('app');
+
+function fmtTime(d){ return new Date(d).toLocaleTimeString('es-CL',{hour:'2-digit',minute:'2-digit'}); }
+function fmtElapsed(min){ const h=Math.floor(min/60), m=Math.floor(min%60); return (h>0?h+'h ':'')+m+'m'; }
+
+function toast(msg, kind){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show' + (kind ? ' toast-'+kind : '');
+  clearTimeout(window._toastTimer);
+  window._toastTimer = setTimeout(()=> t.className='toast', 3000);
+}
+
+async function api(action, payload){
+  const res = await fetch(APPS_SCRIPT_URL, {
+    method:'POST',
+    body: JSON.stringify(Object.assign({action}, payload))
+  });
+  return res.json();
+}
+
+function fileToBase64(file){
+  return new Promise((resolve,reject)=>{
+    const r = new FileReader();
+    r.onload = ()=> resolve(r.result);
+    r.onerror = reject;
+    r.readAsDataURL(file);
+  });
+}
+
+/* ---------------- Pantalla: búsqueda ---------------- */
+function renderSearch(){
+  app.innerHTML = `
+    <div class="field-label">Ingresar patente</div>
+    <div class="plate-input-row">
+      <input id="plateInput" class="plate-input" maxlength="8" placeholder="AB·CD12" autocomplete="off">
+      <button class="btn btn-search" onclick="doSearch()">→</button>
+    </div>
+  `;
+  const input = document.getElementById('plateInput');
+  input.addEventListener('keydown', e=>{ if(e.key==='Enter') doSearch(); });
+  input.focus();
+}
+
+async function doSearch(){
+  const raw = document.getElementById('plateInput').value.trim().toUpperCase().replace(/[^A-Z0-9]/g,'');
+  if(!raw){ toast('Ingresa una patente'); return; }
+  view.plate = raw;
+  const info = await api('buscar', { patente: raw });
+  if(info.error){ toast(info.error,'red'); return; }
+  if(!info.found){
+    view.name = 'newEntry';
+    view.tempPhoto = null;
+    renderNewEntry();
+  } else {
+    view.info = info;
+    view.name = 'active';
+    renderActive();
+  }
+}
+
+/* ---------------- Pantalla: ingreso nuevo ---------------- */
+function renderNewEntry(){
+  app.innerHTML = `
+    <div class="plate-chip">${view.plate}</div>
+    <div class="form-group">
+      <label>Tipo de vehículo</label>
+      <div class="toggle-row">
+        <div class="toggle selected" id="toggleVisita" onclick="setTipo('Visita')">Visita</div>
+        <div class="toggle" id="toggleProveedor" onclick="setTipo('Proveedor')">Proveedor</div>
+        <div class="toggle" id="toggleEspecial" onclick="setTipo('Especial')">Especial</div>
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Estacionamiento asignado</label>
+      <select class="select-spot" id="spotSelect">
+        <option>V-01</option><option>V-02</option><option selected>V-03</option>
+        <option>V-04</option><option>V-05</option><option>V-06</option><option>V-07</option><option>V-08</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Foto de respaldo (obligatoria)</label>
+      <div class="photo-box" id="photoBox">
+        <div class="ph-empty">Sin foto capturada</div>
+        <button class="btn btn-camera" type="button" onclick="document.getElementById('camInput').click()">📷 Tomar foto</button>
+        <input type="file" id="camInput" accept="image/*" capture="environment" onchange="onPhoto(event)">
+      </div>
+    </div>
+    <button class="btn btn-primary" onclick="confirmEntry()">Confirmar ingreso</button>
+    <div class="back-link" onclick="goBack()">← Volver</div>
+  `;
+  view.tipoVehiculo = 'Visita';
+}
+
+function setTipo(tipo){
+  view.tipoVehiculo = tipo;
+  document.getElementById('toggleVisita').classList.toggle('selected', tipo==='Visita');
+  document.getElementById('toggleProveedor').classList.toggle('selected', tipo==='Proveedor');
+  document.getElementById('toggleEspecial').classList.toggle('selected', tipo==='Especial');
+}
+
+async function onPhoto(e){
+  const file = e.target.files[0];
+  if(!file) return;
+  view.tempPhoto = await fileToBase64(file);
+  document.getElementById('photoBox').innerHTML = `
+    <img src="${view.tempPhoto}">
+    <button class="btn btn-camera" type="button" onclick="document.getElementById('camInput').click()">📷 Repetir foto</button>
+    <input type="file" id="camInput" accept="image/*" capture="environment" onchange="onPhoto(event)">
+  `;
+}
+
+async function confirmEntry(){
+  if(!view.tempPhoto){ toast('Falta la foto de respaldo','red'); return; }
+  const spot = document.getElementById('spotSelect').value;
+  const res = await api('ingreso', {
+    patente: view.plate, tipoVehiculo: view.tipoVehiculo, estacionamiento: spot,
+    origen: ORIGEN, fotoBase64: view.tempPhoto
+  });
+  if(res.error){ toast(res.error,'red'); return; }
+  toast('Ingreso registrado · '+view.plate,'green');
+  view.name='search'; renderSearch();
+}
+
+/* ---------------- Pantalla: vehículo activo ---------------- */
+function renderActive(){
+  const info = view.info;
+  const r = info.registro;
+  let statusClass='ok', statusLabel='Dentro de horario';
+  if(info.sinLimite){
+    statusClass='neutral'; statusLabel='Sin límite (Especial)';
+  } else if(info.excede){
+    statusClass='exceeded'; statusLabel='Excede tiempo permitido ('+info.umbralHoras+'h)';
+  } else if(info.elapsedMin >= info.umbralHoras*60*0.8){
+    statusClass='warn'; statusLabel='Cerca del límite ('+info.umbralHoras+'h)';
+  }
+
+  app.innerHTML = `
+    <div class="plate-chip">${view.plate}</div>
+    <div class="card">
+      <div class="card-row">
+        <div class="kv"><span class="k">Tipo</span><span class="v" style="font-size:13px">${r.tipo_vehiculo}</span></div>
+        <div class="kv"><span class="k">Estacionamiento</span><span class="v">${r.estacionamiento}</span></div>
+      </div>
+      <div class="card-row" style="margin-bottom:0">
+        <div class="kv"><span class="k">Hora de ingreso</span><span class="v">${fmtTime(r.hora_ingreso)}</span></div>
+        <div class="kv"><span class="k">Origen</span><span class="v" style="font-size:13px">${r.origen}</span></div>
+      </div>
+      <div class="status-band ${statusClass}">
+        <span>${statusLabel}</span>
+        <span class="elapsed">${fmtElapsed(info.elapsedMin)}</span>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-green" onclick="handleAction('sigue')">Sigue aquí</button>
+        <button class="btn btn-red" onclick="handleAction('retiro')">Se retiró</button>
+      </div>
+    </div>
+    <div class="back-link" onclick="goBack()">← Volver a buscar</div>
+  `;
+}
+
+async function handleAction(kind){
+  view.pendingAction = kind;
+  if(kind==='sigue'){
+    const res = await api('control', { patente: view.plate });
+    await handleControlResponse(res);
+  } else {
+    const res = await api('salida', { patente: view.plate });
+    await handleSalidaResponse(res);
+  }
+}
+
+async function handleControlResponse(res){
+  if(res.requiereFoto){ showPhotoSheet('control'); return; }
+  if(res.error){ toast(res.error,'red'); return; }
+  toast(res.excedio ? 'Control registrado · MULTA aplicada' : 'Control registrado · dentro de horario', res.excedio?'red':'green');
+  view.name='search'; renderSearch();
+}
+
+async function handleSalidaResponse(res){
+  if(res.requiereFoto){ showPhotoSheet('salida'); return; }
+  if(res.error){ toast(res.error,'red'); return; }
+  toast(res.excedio ? 'Salida registrada · MULTA aplicada' : 'Salida registrada', res.excedio?'red':'green');
+  view.name='search'; renderSearch();
+}
+
+/* ---------------- Hoja: foto obligatoria (control/salida) ---------------- */
+function showPhotoSheet(kind){
+  const overlay = document.createElement('div');
+  overlay.className = 'overlay';
+  overlay.id = 'sheetOverlay';
+  overlay.innerHTML = `
+    <div class="sheet">
+      <div class="sheet-title">⚠ Excede tiempo permitido</div>
+      <p>Se requiere foto de respaldo para la multa antes de continuar.</p>
+      <div class="photo-box" id="finePhotoBox">
+        <div class="ph-empty">Sin foto capturada</div>
+        <button class="btn btn-camera" type="button" onclick="document.getElementById('fineCamInput').click()">📷 Tomar foto de respaldo</button>
+        <input type="file" id="fineCamInput" accept="image/*" capture="environment" onchange="onFinePhoto(event)">
+      </div>
+      <button class="btn btn-primary" style="background:var(--red)" onclick="confirmFine('${kind}')">Confirmar y registrar multa</button>
+      <div class="back-link" onclick="closeSheet()">Cancelar</div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+}
+
+async function onFinePhoto(e){
+  const file = e.target.files[0];
+  if(!file) return;
+  view.finePhoto = await fileToBase64(file);
+  document.getElementById('finePhotoBox').innerHTML = `
+    <img src="${view.finePhoto}">
+    <button class="btn btn-camera" type="button" onclick="document.getElementById('fineCamInput').click()">📷 Repetir foto</button>
+    <input type="file" id="fineCamInput" accept="image/*" capture="environment" onchange="onFinePhoto(event)">
+  `;
+}
+
+async function confirmFine(kind){
+  if(!view.finePhoto){ toast('Falta la foto de respaldo','red'); return; }
+  closeSheet();
+  if(kind==='control'){
+    const res = await api('control', { patente: view.plate, fotoBase64: view.finePhoto });
+    await handleControlResponse(res);
+  } else {
+    const res = await api('salida', { patente: view.plate, fotoBase64: view.finePhoto });
+    await handleSalidaResponse(res);
+  }
+  view.finePhoto = null;
+}
+
+function closeSheet(){
+  const o = document.getElementById('sheetOverlay');
+  if(o) o.remove();
+}
+
+function goBack(){ view.name='search'; renderSearch(); }
+
+function tickClock(){ document.getElementById('clock').textContent = fmtTime(new Date()); }
+setInterval(tickClock, 1000);
+tickClock();
+renderSearch();
+</script>
+</body>
+</html>
