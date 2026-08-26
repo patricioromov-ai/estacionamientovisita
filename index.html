@@ -73,6 +73,27 @@
   .toast.toast-red{background:var(--red);}
   .toast.toast-green{background:var(--green);}
   .back-link{display:inline-block;margin-top:16px;font-size:13px;color:var(--muted);cursor:pointer;text-decoration:underline;}
+  .list-link{display:block;text-align:center;margin-top:22px;padding:14px;border:1.5px dashed var(--line);border-radius:10px;font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:14px;color:var(--teal);cursor:pointer;}
+  .list-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;}
+  .list-header h2{font-family:'Space Grotesk',sans-serif;font-size:17px;margin:0;}
+  .list-actions{display:flex;gap:8px;}
+  .icon-btn{background:var(--panel);border:1.5px solid var(--line);border-radius:8px;padding:8px 12px;font-size:13px;font-family:'Space Grotesk',sans-serif;font-weight:600;cursor:pointer;color:var(--ink);}
+  .veh-row{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:10px;cursor:pointer;}
+  .veh-row-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;}
+  .veh-plate{font-family:'JetBrains Mono',monospace;font-weight:700;font-size:16px;}
+  .veh-meta{font-size:12px;color:var(--muted);}
+  .status-chip{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:11px;padding:4px 10px;border-radius:99px;text-transform:uppercase;letter-spacing:.03em;}
+  .status-chip.ok{background:var(--green-bg);color:var(--green);}
+  .status-chip.warn{background:var(--amber-bg);color:var(--amber);}
+  .status-chip.exceeded{background:var(--red-bg);color:var(--red);}
+  .status-chip.neutral{background:#EFEDE7;color:var(--muted);}
+  .alert-flag{color:var(--red);font-size:11px;font-weight:700;margin-top:4px;}
+  .empty-state{text-align:center;color:var(--muted);font-size:13px;padding:40px 20px;}
+  @media print{
+    .topbar, .subtitle, .list-actions, .list-link, .back-link, .veh-row{cursor:default;}
+    body{background:#fff;}
+    .icon-btn{display:none;}
+  }
 </style>
 </head>
 <body>
@@ -135,10 +156,80 @@ function renderSearch(){
       <input id="plateInput" class="plate-input" maxlength="8" placeholder="AB·CD12" autocomplete="off">
       <button class="btn btn-search" onclick="doSearch()">→</button>
     </div>
+    <div class="list-link" onclick="renderActivos()">📋 Ver vehículos activos</div>
   `;
   const input = document.getElementById('plateInput');
   input.addEventListener('keydown', e=>{ if(e.key==='Enter') doSearch(); });
   input.focus();
+}
+
+/* ---------------- Pantalla: vehículos activos ---------------- */
+let ultimosActivos = [];
+
+async function renderActivos(){
+  app.innerHTML = `<div class="empty-state">Cargando...</div>`;
+  const res = await api('activos', {});
+  if(res.error){ toast(res.error,'red'); goBack(); return; }
+  ultimosActivos = res.activos || [];
+
+  const rows = ultimosActivos.map(v=>{
+    let cls='ok', label='Dentro de horario';
+    if(v.sinLimite){ cls='neutral'; label='Sin límite'; }
+    else if(v.excede){ cls='exceeded'; label='Excede ('+v.umbralHoras+'h)'; }
+    else if(v.elapsedMin >= v.umbralHoras*60*0.8){ cls='warn'; label='Cerca del límite'; }
+    return `
+      <div class="veh-row" onclick="verDetalle('${v.patente}')">
+        <div class="veh-row-top">
+          <span class="veh-plate">${v.patente}</span>
+          <span class="status-chip ${cls}">${label}</span>
+        </div>
+        <div class="veh-meta">${v.tipo_vehiculo} · ${v.estacionamiento} · ingreso ${fmtTime(v.hora_ingreso)} · ${fmtElapsed(v.elapsedMin)} · ${v.origen}</div>
+        ${v.alertaControl ? '<div class="alert-flag">⚠ Necesita control</div>' : ''}
+      </div>
+    `;
+  }).join('') || `<div class="empty-state">No hay vehículos activos en este momento</div>`;
+
+  app.innerHTML = `
+    <div class="list-header">
+      <h2>Vehículos activos (${ultimosActivos.length})</h2>
+      <div class="list-actions">
+        <button class="icon-btn" onclick="window.print()">🖨️ Imprimir</button>
+        <button class="icon-btn" onclick="exportarCSV()">⬇ CSV</button>
+      </div>
+    </div>
+    ${rows}
+    <div class="back-link" onclick="goBack()">← Volver a buscar</div>
+  `;
+}
+
+async function verDetalle(patente){
+  view.plate = patente;
+  const info = await api('buscar', { patente });
+  if(info.error || !info.found){ toast('No se pudo cargar el detalle','red'); return; }
+  view.info = info;
+  view.name = 'active';
+  renderActive();
+}
+
+function exportarCSV(){
+  if(!ultimosActivos.length){ toast('No hay datos para exportar'); return; }
+  const headers = ['Patente','Tipo','Estacionamiento','Origen','Hora Ingreso','Tiempo Transcurrido','Estado','Necesita Control'];
+  const lines = [headers.join(';')];
+  ultimosActivos.forEach(v=>{
+    const estado = v.sinLimite ? 'Sin límite' : (v.excede ? 'Excede tiempo' : 'Dentro de horario');
+    lines.push([
+      v.patente, v.tipo_vehiculo, v.estacionamiento, v.origen,
+      fmtTime(v.hora_ingreso), fmtElapsed(v.elapsedMin), estado, v.alertaControl ? 'Sí' : 'No'
+    ].join(';'));
+  });
+  const blob = new Blob(["\uFEFF"+lines.join('\n')], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const ts = new Date().toISOString().slice(0,16).replace('T','_').replace(':','');
+  a.href = url;
+  a.download = `control-vehiculos-activos_${ts}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 async function doSearch(){
