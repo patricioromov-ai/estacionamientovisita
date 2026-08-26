@@ -178,7 +178,7 @@ function renderNewEntry(){
       </select>
     </div>
     <div class="form-group">
-      <label>Foto de respaldo (obligatoria)</label>
+      <label>Foto de respaldo (opcional)</label>
       <div class="photo-box" id="photoBox">
         <div class="ph-empty">Sin foto capturada</div>
         <button class="btn btn-camera" type="button" onclick="document.getElementById('camInput').click()">📷 Tomar foto</button>
@@ -210,7 +210,6 @@ async function onPhoto(e){
 }
 
 async function confirmEntry(){
-  if(!view.tempPhoto){ toast('Falta la foto de respaldo','red'); return; }
   const spot = document.getElementById('spotSelect').value;
   const res = await api('ingreso', {
     patente: view.plate, tipoVehiculo: view.tipoVehiculo, estacionamiento: spot,
@@ -265,7 +264,8 @@ async function handleAction(kind){
     await handleControlResponse(res);
   } else {
     const res = await api('salida', { patente: view.plate });
-    await handleSalidaResponse(res);
+    toast(res.excedio ? 'Salida registrada · MULTA aplicada' : 'Salida registrada', res.excedio?'red':'green');
+    view.name='search'; renderSearch();
   }
 }
 
@@ -273,13 +273,6 @@ async function handleControlResponse(res){
   if(res.requiereFoto){ showPhotoSheet('control'); return; }
   if(res.error){ toast(res.error,'red'); return; }
   toast(res.excedio ? 'Control registrado · MULTA aplicada' : 'Control registrado · dentro de horario', res.excedio?'red':'green');
-  view.name='search'; renderSearch();
-}
-
-async function handleSalidaResponse(res){
-  if(res.requiereFoto){ showPhotoSheet('salida'); return; }
-  if(res.error){ toast(res.error,'red'); return; }
-  toast(res.excedio ? 'Salida registrada · MULTA aplicada' : 'Salida registrada', res.excedio?'red':'green');
   view.name='search'; renderSearch();
 }
 
@@ -318,13 +311,8 @@ async function onFinePhoto(e){
 async function confirmFine(kind){
   if(!view.finePhoto){ toast('Falta la foto de respaldo','red'); return; }
   closeSheet();
-  if(kind==='control'){
-    const res = await api('control', { patente: view.plate, fotoBase64: view.finePhoto });
-    await handleControlResponse(res);
-  } else {
-    const res = await api('salida', { patente: view.plate, fotoBase64: view.finePhoto });
-    await handleSalidaResponse(res);
-  }
+  const res = await api('control', { patente: view.plate, fotoBase64: view.finePhoto });
+  await handleControlResponse(res);
   view.finePhoto = null;
 }
 
