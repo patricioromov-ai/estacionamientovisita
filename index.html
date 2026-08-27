@@ -11,6 +11,7 @@
     --ink:#1C2B33; --paper:#F6F4EF; --panel:#FFFFFF;
     --teal:#0E6E5C; --teal-dark:#0A5747;
     --amber:#D98C24; --amber-bg:#FBF0DC;
+    --orange:#C4551A; --orange-bg:#FBE3D3;
     --red:#C0392B; --red-bg:#FBEAE7;
     --green:#3F8F5F; --green-bg:#E9F4EC;
     --line:#E3DFD6; --muted:#6B6459;
@@ -52,6 +53,7 @@
   .status-band{margin-top:16px;padding:14px 16px;border-radius:10px;display:flex;align-items:center;justify-content:space-between;font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:14px;}
   .status-band.ok{background:var(--green-bg);color:var(--green);}
   .status-band.warn{background:var(--amber-bg);color:var(--amber);}
+  .status-band.alert30{background:var(--orange-bg);color:var(--orange);}
   .status-band.exceeded{background:var(--red-bg);color:var(--red);}
   .status-band.neutral{background:#EFEDE7;color:var(--muted);}
   .status-band .elapsed{font-family:'JetBrains Mono',monospace;font-size:18px;font-weight:700;}
@@ -85,6 +87,7 @@
   .status-chip{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:11px;padding:4px 10px;border-radius:99px;text-transform:uppercase;letter-spacing:.03em;}
   .status-chip.ok{background:var(--green-bg);color:var(--green);}
   .status-chip.warn{background:var(--amber-bg);color:var(--amber);}
+  .status-chip.alert30{background:var(--orange-bg);color:var(--orange);}
   .status-chip.exceeded{background:var(--red-bg);color:var(--red);}
   .status-chip.neutral{background:#EFEDE7;color:var(--muted);}
   .alert-flag{color:var(--red);font-size:11px;font-weight:700;margin-top:4px;}
@@ -172,11 +175,15 @@ async function renderActivos(){
   if(res.error){ toast(res.error,'red'); goBack(); return; }
   ultimosActivos = res.activos || [];
 
+  const counts = { excedido:0, aviso_30m:0, aviso_1h:0 };
+  ultimosActivos.forEach(v=>{ if(counts[v.alertaNivel]!==undefined) counts[v.alertaNivel]++; });
+
   const rows = ultimosActivos.map(v=>{
-    let cls='ok', label='Dentro de horario';
-    if(v.sinLimite){ cls='neutral'; label='Sin límite'; }
-    else if(v.excede){ cls='exceeded'; label='Excede ('+v.umbralHoras+'h)'; }
-    else if(v.elapsedMin >= v.umbralHoras*60*0.8){ cls='warn'; label='Cerca del límite'; }
+    let cls='ok', label='OK';
+    if(v.alertaNivel==='sin_limite'){ cls='neutral'; label='Sin límite'; }
+    else if(v.alertaNivel==='excedido'){ cls='exceeded'; label='Excedió'; }
+    else if(v.alertaNivel==='aviso_30m'){ cls='alert30'; label='30 min o menos'; }
+    else if(v.alertaNivel==='aviso_1h'){ cls='warn'; label='1 hora o menos'; }
     return `
       <div class="veh-row" onclick="verDetalle('${v.patente}')">
         <div class="veh-row-top">
@@ -197,6 +204,7 @@ async function renderActivos(){
         <button class="icon-btn" onclick="exportarCSV()">⬇ CSV</button>
       </div>
     </div>
+    ${ultimosActivos.length ? `<div class="veh-meta" style="margin-bottom:14px">🔴 ${counts.excedido} excedidos · 🟠 ${counts.aviso_30m} con 30 min o menos · 🟡 ${counts.aviso_1h} con 1 hora o menos</div>` : ''}
     ${rows}
     <div class="back-link" onclick="goBack()">← Volver a buscar</div>
   `;
@@ -216,7 +224,8 @@ function exportarCSV(){
   const headers = ['Patente','Tipo','Estacionamiento','Origen','Hora Ingreso','Tiempo Transcurrido','Estado','Necesita Control'];
   const lines = [headers.join(';')];
   ultimosActivos.forEach(v=>{
-    const estado = v.sinLimite ? 'Sin límite' : (v.excede ? 'Excede tiempo' : 'Dentro de horario');
+    const estadoMap = { sin_limite:'Sin límite', excedido:'Excedió tiempo', aviso_30m:'30 min o menos', aviso_1h:'1 hora o menos', ok:'Dentro de horario' };
+    const estado = estadoMap[v.alertaNivel] || 'Dentro de horario';
     lines.push([
       v.patente, v.tipo_vehiculo, v.estacionamiento, v.origen,
       fmtTime(v.hora_ingreso), fmtElapsed(v.elapsedMin), estado, v.alertaControl ? 'Sí' : 'No'
@@ -316,12 +325,14 @@ function renderActive(){
   const info = view.info;
   const r = info.registro;
   let statusClass='ok', statusLabel='Dentro de horario';
-  if(info.sinLimite){
+  if(info.alertaNivel==='sin_limite'){
     statusClass='neutral'; statusLabel='Sin límite (Especial)';
-  } else if(info.excede){
+  } else if(info.alertaNivel==='excedido'){
     statusClass='exceeded'; statusLabel='Excede tiempo permitido ('+info.umbralHoras+'h)';
-  } else if(info.elapsedMin >= info.umbralHoras*60*0.8){
-    statusClass='warn'; statusLabel='Cerca del límite ('+info.umbralHoras+'h)';
+  } else if(info.alertaNivel==='aviso_30m'){
+    statusClass='alert30'; statusLabel='¡Quedan '+Math.round(info.restanteMin)+' min!';
+  } else if(info.alertaNivel==='aviso_1h'){
+    statusClass='warn'; statusLabel='Queda ~1 hora ('+Math.round(info.restanteMin)+' min)';
   }
 
   app.innerHTML = `
@@ -355,6 +366,8 @@ async function handleAction(kind){
     await handleControlResponse(res);
   } else {
     const res = await api('salida', { patente: view.plate });
+    if(res.requiereDecisionMulta){ showMultaDecisionSheet(); return; }
+    if(res.error){ toast(res.error,'red'); return; }
     toast(res.excedio ? 'Salida registrada · MULTA aplicada' : 'Salida registrada', res.excedio?'red':'green');
     view.name='search'; renderSearch();
   }
@@ -364,6 +377,31 @@ async function handleControlResponse(res){
   if(res.requiereFoto){ showPhotoSheet('control'); return; }
   if(res.error){ toast(res.error,'red'); return; }
   toast(res.excedio ? 'Control registrado · MULTA aplicada' : 'Control registrado · dentro de horario', res.excedio?'red':'green');
+  view.name='search'; renderSearch();
+}
+
+/* ---------------- Hoja: decidir si aplica multa en la salida ---------------- */
+function showMultaDecisionSheet(){
+  const overlay = document.createElement('div');
+  overlay.className = 'overlay';
+  overlay.id = 'sheetOverlay';
+  overlay.innerHTML = `
+    <div class="sheet">
+      <div class="sheet-title" style="color:var(--ink)">¿Aplica multa?</div>
+      <p>Este vehículo superó el tiempo permitido. Solo corresponde aplicar la multa si fue sorprendido en el lugar excediendo el horario (por ejemplo, con un control intermedio registrado). Si se retiró sin que se detectara a tiempo, no la apliques.</p>
+      <button class="btn btn-primary" style="background:var(--red)" onclick="resolverMulta('si')">Sí, aplicar multa</button>
+      <button class="btn btn-primary" style="background:var(--ink)" onclick="resolverMulta('no')">No aplicar multa</button>
+      <div class="back-link" onclick="closeSheet()">Cancelar</div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+}
+
+async function resolverMulta(decision){
+  closeSheet();
+  const res = await api('salida', { patente: view.plate, aplicaMulta: decision });
+  if(res.error){ toast(res.error,'red'); return; }
+  toast(res.excedio ? 'Salida registrada · MULTA aplicada' : 'Salida registrada · sin multa', res.excedio?'red':'green');
   view.name='search'; renderSearch();
 }
 
