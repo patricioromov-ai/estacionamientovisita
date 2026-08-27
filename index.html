@@ -190,7 +190,7 @@ async function renderActivos(){
           <span class="veh-plate">${v.patente}</span>
           <span class="status-chip ${cls}">${label}</span>
         </div>
-        <div class="veh-meta">${v.tipo_vehiculo} · ${v.estacionamiento} · ingreso ${fmtTime(v.hora_ingreso)} · ${fmtElapsed(v.elapsedMin)} · ${v.origen}</div>
+        <div class="veh-meta">${v.tipo_vehiculo} · ${v.estacionamiento}${v.depto ? ' · Depto '+v.depto : ''} · ingreso ${fmtTime(v.hora_ingreso)} · ${fmtElapsed(v.elapsedMin)} · ${v.origen}</div>
         ${v.alertaControl ? '<div class="alert-flag">⚠ Necesita control</div>' : ''}
       </div>
     `;
@@ -221,13 +221,13 @@ async function verDetalle(patente){
 
 function exportarCSV(){
   if(!ultimosActivos.length){ toast('No hay datos para exportar'); return; }
-  const headers = ['Patente','Tipo','Estacionamiento','Origen','Hora Ingreso','Tiempo Transcurrido','Estado','Necesita Control'];
+  const headers = ['Patente','Tipo','Depto','Estacionamiento','Origen','Hora Ingreso','Tiempo Transcurrido','Estado','Necesita Control'];
   const lines = [headers.join(';')];
   ultimosActivos.forEach(v=>{
     const estadoMap = { sin_limite:'Sin límite', excedido:'Excedió tiempo', aviso_30m:'30 min o menos', aviso_1h:'1 hora o menos', ok:'Dentro de horario' };
     const estado = estadoMap[v.alertaNivel] || 'Dentro de horario';
     lines.push([
-      v.patente, v.tipo_vehiculo, v.estacionamiento, v.origen,
+      v.patente, v.tipo_vehiculo, v.depto||'', v.estacionamiento, v.origen,
       fmtTime(v.hora_ingreso), fmtElapsed(v.elapsedMin), estado, v.alertaControl ? 'Sí' : 'No'
     ].join(';'));
   });
@@ -260,6 +260,12 @@ async function doSearch(){
 
 /* ---------------- Pantalla: ingreso nuevo ---------------- */
 function renderNewEntry(){
+  const spotOptions = Array.from({length:90}, (_,i)=>{
+    const n = String(i+1).padStart(2,'0');
+    return `<option value="V-${n}"${n==='03'?' selected':''}>V-${n}</option>`;
+  }).join('');
+  const deptoOptions = (deptosCache||[]).map(d=>`<option value="${d}">`).join('');
+
   app.innerHTML = `
     <div class="plate-chip">${view.plate}</div>
     <div class="form-group">
@@ -271,11 +277,13 @@ function renderNewEntry(){
       </div>
     </div>
     <div class="form-group">
+      <label>Departamento que recibe (opcional)</label>
+      <input id="deptoInput" class="plate-input" style="font-size:16px;letter-spacing:0;text-transform:none;width:100%" placeholder="Ej: A-0203" list="deptosList" autocomplete="off">
+      <datalist id="deptosList">${deptoOptions}</datalist>
+    </div>
+    <div class="form-group">
       <label>Estacionamiento asignado</label>
-      <select class="select-spot" id="spotSelect">
-        <option>V-01</option><option>V-02</option><option selected>V-03</option>
-        <option>V-04</option><option>V-05</option><option>V-06</option><option>V-07</option><option>V-08</option>
-      </select>
+      <select class="select-spot" id="spotSelect">${spotOptions}</select>
     </div>
     <div class="form-group">
       <label>Foto de respaldo (opcional)</label>
@@ -289,6 +297,17 @@ function renderNewEntry(){
     <div class="back-link" onclick="goBack()">← Volver</div>
   `;
   view.tipoVehiculo = 'Visita';
+  ensureDeptosLoaded();
+}
+
+let deptosCache = null;
+async function ensureDeptosLoaded(){
+  if(deptosCache) return deptosCache;
+  const res = await api('deptos', {});
+  deptosCache = res.deptos || [];
+  const dl = document.getElementById('deptosList');
+  if(dl) dl.innerHTML = deptosCache.map(d=>`<option value="${d}">`).join('');
+  return deptosCache;
 }
 
 function setTipo(tipo){
@@ -311,9 +330,10 @@ async function onPhoto(e){
 
 async function confirmEntry(){
   const spot = document.getElementById('spotSelect').value;
+  const depto = document.getElementById('deptoInput').value.trim();
   const res = await api('ingreso', {
     patente: view.plate, tipoVehiculo: view.tipoVehiculo, estacionamiento: spot,
-    origen: ORIGEN, fotoBase64: view.tempPhoto
+    origen: ORIGEN, fotoBase64: view.tempPhoto, depto: depto
   });
   if(res.error){ toast(res.error,'red'); return; }
   toast('Ingreso registrado · '+view.plate,'green');
@@ -342,9 +362,12 @@ function renderActive(){
         <div class="kv"><span class="k">Tipo</span><span class="v" style="font-size:13px">${r.tipo_vehiculo}</span></div>
         <div class="kv"><span class="k">Estacionamiento</span><span class="v">${r.estacionamiento}</span></div>
       </div>
+      <div class="card-row">
+        <div class="kv"><span class="k">Depto</span><span class="v" style="font-size:13px">${r.depto || '—'}</span></div>
+        <div class="kv"><span class="k">Origen</span><span class="v" style="font-size:13px">${r.origen}</span></div>
+      </div>
       <div class="card-row" style="margin-bottom:0">
         <div class="kv"><span class="k">Hora de ingreso</span><span class="v">${fmtTime(r.hora_ingreso)}</span></div>
-        <div class="kv"><span class="k">Origen</span><span class="v" style="font-size:13px">${r.origen}</span></div>
       </div>
       <div class="status-band ${statusClass}">
         <span>${statusLabel}</span>
