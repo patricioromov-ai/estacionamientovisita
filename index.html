@@ -458,6 +458,18 @@ function renderActive(){
   if(r.condicion === 'prohibido') condicionBanner = '<div class="alert-flag" style="margin-top:8px;font-size:13px">🚫 PROHIBIDO DE INGRESO</div>';
   else if(r.condicion === 'seguimiento') condicionBanner = '<div class="alert-flag" style="margin-top:8px;font-size:13px;color:var(--amber)">👁 SEGUIMIENTO INTERNO</div>';
 
+  const condActual = r.condicion || '';
+  const condicionEditor = `
+    <div class="form-group" style="margin-top:16px">
+      <label>Marcar condición</label>
+      <div class="toggle-row">
+        <div class="toggle ${condActual===''?'selected':''}" onclick="cambiarCondicion('')">Ninguna</div>
+        <div class="toggle ${condActual==='prohibido'?'selected':''}" onclick="cambiarCondicion('prohibido')">🚫 Prohibido</div>
+        <div class="toggle ${condActual==='seguimiento'?'selected':''}" onclick="cambiarCondicion('seguimiento')">👁 Seguimiento</div>
+      </div>
+    </div>
+  `;
+
   app.innerHTML = `
     <div class="plate-chip">${view.plate}</div>
     ${condicionBanner}
@@ -479,6 +491,7 @@ function renderActive(){
         <span class="elapsed">${fmtElapsed(info.elapsedMin)}</span>
       </div>
       ${fotosHtml}
+      ${condicionEditor}
       <div class="btn-row">
         <button class="btn btn-green" onclick="handleAction('sigue')">Sigue aquí</button>
         <button class="btn btn-red" onclick="handleAction('retiro')">Se retiró</button>
@@ -487,6 +500,13 @@ function renderActive(){
     </div>
     <div class="back-link" onclick="goBack()">← Volver a buscar</div>
   `;
+}
+
+async function cambiarCondicion(cond){
+  const res = await api('condicion', { patente: view.plate, condicion: cond });
+  if(res.error){ toast(res.error,'red'); return; }
+  toast(cond ? 'Condición actualizada' : 'Condición quitada', cond==='prohibido'?'red':'green');
+  await verDetalle(view.plate);
 }
 
 async function handleAction(kind){
