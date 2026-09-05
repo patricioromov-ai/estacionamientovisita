@@ -100,6 +100,16 @@
     body{background:#fff;}
     .icon-btn{display:none;}
   }
+  .spot-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:8px;}
+  .spot-btn{padding:14px 6px;border-radius:10px;border:1.5px solid var(--green);background:var(--green-bg);color:var(--green);font-family:'JetBrains Mono',monospace;font-weight:700;font-size:14px;text-align:center;cursor:pointer;}
+  .spot-btn:active{transform:scale(.96);}
+  .spot-pager{display:flex;justify-content:space-between;align-items:center;margin-top:10px;}
+  .spot-pager span{font-size:12px;color:var(--muted);}
+  .selected-chip{display:flex;align-items:center;justify-content:space-between;background:var(--green-bg);border:1.5px solid var(--green);border-radius:10px;padding:12px 14px;margin-top:8px;}
+  .selected-chip .val{font-family:'JetBrains Mono',monospace;font-weight:700;color:var(--green);}
+  .selected-chip .clear{font-size:12px;color:var(--muted);text-decoration:underline;cursor:pointer;}
+  .depto-matches{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;}
+  .depto-match-btn{padding:10px 14px;border-radius:8px;border:1.5px solid var(--line);background:var(--panel);font-family:'JetBrains Mono',monospace;font-weight:700;font-size:13px;cursor:pointer;}
 </style>
 </head>
 <body>
@@ -127,6 +137,7 @@ let view = { name: 'search', plate: '', tipoVehiculo: 'Visita', tempPhoto: null,
 const app = document.getElementById('app');
 
 function fmtTime(d){ return new Date(d).toLocaleTimeString('es-CL',{hour:'2-digit',minute:'2-digit'}); }
+function fmtDate(d){ return new Date(d).toLocaleDateString('es-CL',{day:'2-digit',month:'2-digit',year:'numeric'}); }
 function fmtElapsed(min){ const h=Math.floor(min/60), m=Math.floor(min%60); return (h>0?h+'h ':'')+m+'m'; }
 
 function toast(msg, kind){
@@ -162,6 +173,8 @@ function renderSearch(){
       <input id="plateInput" class="plate-input" maxlength="8" placeholder="AB·CD12" autocomplete="off">
       <button class="btn btn-search" onclick="doSearch()">→</button>
     </div>
+    <div class="list-link" id="leerPatenteBtn" onclick="document.getElementById('camPatente').click()" style="margin-top:10px">📷 Leer patente con cámara</div>
+    <input type="file" id="camPatente" accept="image/*" capture="environment" onchange="onFotoPatente(event)" style="display:none">
     <div class="list-link" onclick="renderActivos()">📋 Ver vehículos activos</div>
     <div class="list-link" onclick="renderActivos({condiciones:['prohibido','seguimiento']})" style="margin-top:10px">🚫 Ver prohibidos / seguimiento</div>
     <div class="list-link" onclick="renderActivos({tipo:'Especial'})" style="margin-top:10px">⭐ Ver especiales activos</div>
@@ -169,6 +182,24 @@ function renderSearch(){
   const input = document.getElementById('plateInput');
   input.addEventListener('keydown', e=>{ if(e.key==='Enter') doSearch(); });
   input.focus();
+}
+
+async function onFotoPatente(e){
+  const file = e.target.files[0];
+  if(!file) return;
+  const btn = document.getElementById('leerPatenteBtn');
+  btn.textContent = '⏳ Leyendo...';
+  const fotoBase64 = await fileToBase64(file);
+  const res = await api('leerPatente', { fotoBase64 });
+  btn.textContent = '📷 Leer patente con cámara';
+  if(res.error){ toast(res.error,'red'); return; }
+  if(!res.found){ toast('No se detectó ninguna patente, ingrésala manualmente'); return; }
+  const input = document.getElementById('plateInput');
+  if(input){
+    input.value = res.patente;
+    toast(`Leído: ${res.patente} (${res.confianza}% confianza) — revisa y confirma`, res.confianza>=80?'green':'red');
+    input.focus();
+  }
 }
 
 /* ---------------- Pantalla: vehículos activos ---------------- */
@@ -262,7 +293,7 @@ function exportarCSV(){
     const condMap = { prohibido:'Prohibido de ingreso', seguimiento:'Seguimiento interno' };
     lines.push([
       v.patente, v.tipo_vehiculo, condMap[v.condicion]||'', v.depto||'', v.estacionamiento, v.origen,
-      fmtTime(v.hora_ingreso), fmtElapsed(v.elapsedMin), estado, v.alertaControl ? 'Sí' : 'No'
+      fmtDate(v.hora_ingreso)+' '+fmtTime(v.hora_ingreso), fmtElapsed(v.elapsedMin), estado, v.alertaControl ? 'Sí' : 'No'
     ].join(';'));
   });
   const blob = new Blob(["\uFEFF"+lines.join('\n')], {type:'text/csv;charset=utf-8;'});
@@ -294,12 +325,15 @@ async function doSearch(){
 }
 
 /* ---------------- Pantalla: ingreso nuevo ---------------- */
+const ESTACIONAMIENTO_MAX = 70; // pool de asignación automática: V-01 a V-70
+
 function renderNewEntry(){
-  const spotOptions = Array.from({length:90}, (_,i)=>{
-    const n = String(i+1).padStart(2,'0');
-    return `<option value="V-${n}"${n==='03'?' selected':''}>V-${n}</option>`;
-  }).join('');
-  const deptoOptions = (deptosCache||[]).map(d=>`<option value="${d}">`).join('');
+  view.tipoVehiculo = 'Visita';
+  view.condicion = '';
+  view.depto = '';
+  view.estacionamiento = '';
+  view.ocupadosCache = null;
+  view.spotPage = 0;
 
   app.innerHTML = `
     <div class="plate-chip">${view.plate}</div>
@@ -313,8 +347,7 @@ function renderNewEntry(){
     </div>
     <div class="form-group">
       <label>Departamento que recibe (opcional)</label>
-      <input id="deptoInput" class="plate-input" style="font-size:16px;letter-spacing:0;text-transform:none;width:100%" placeholder="Ej: A-0203" list="deptosList" autocomplete="off">
-      <datalist id="deptosList">${deptoOptions}</datalist>
+      <div id="deptoSection"></div>
     </div>
     <div class="form-group">
       <label>Condición (opcional)</label>
@@ -326,7 +359,7 @@ function renderNewEntry(){
     </div>
     <div class="form-group">
       <label>Estacionamiento asignado</label>
-      <select class="select-spot" id="spotSelect">${spotOptions}</select>
+      <div id="estacionamientoSection"><div class="veh-meta">Cargando disponibilidad...</div></div>
     </div>
     <div class="form-group">
       <label>Foto de respaldo (opcional)</label>
@@ -339,9 +372,129 @@ function renderNewEntry(){
     <button class="btn btn-primary" onclick="confirmEntry()">Confirmar ingreso</button>
     <div class="back-link" onclick="goBack()">← Volver</div>
   `;
-  view.tipoVehiculo = 'Visita';
-  view.condicion = '';
+  renderDeptoSection();
+  renderEstacionamientoSection();
   ensureDeptosLoaded();
+}
+
+/* ---- Depto: búsqueda por número, resuelve la torre ---- */
+function renderDeptoSection(){
+  const el = document.getElementById('deptoSection');
+  if(!el) return;
+  if(view.depto){
+    el.innerHTML = `
+      <div class="selected-chip">
+        <span class="val">${view.depto}</span>
+        <span class="clear" onclick="view.depto=''; renderDeptoSection();">cambiar</span>
+      </div>
+    `;
+    return;
+  }
+  el.innerHTML = `
+    <input id="deptoQueryInput" class="plate-input" style="font-size:16px;letter-spacing:0;text-transform:none;width:100%" placeholder="Ej: 1502" inputmode="numeric" autocomplete="off" oninput="handleDeptoInput(this.value)">
+    <div class="depto-matches" id="deptoMatches"></div>
+  `;
+}
+
+async function handleDeptoInput(query){
+  const digits = query.replace(/\D/g,'');
+  const matchesEl = document.getElementById('deptoMatches');
+  if(!digits){ matchesEl.innerHTML = ''; return; }
+  const lista = await ensureDeptosLoaded();
+  const norm = s => s.replace(/^0+/,'');
+  const matches = lista.filter(u=>{
+    const num = (u.split('-')[1]||'');
+    return num === digits || norm(num) === norm(digits);
+  }).slice(0, 8);
+  matchesEl.innerHTML = matches.length
+    ? matches.map(u=>`<div class="depto-match-btn" onclick="selectDepto('${u}')">${u}</div>`).join('')
+    : `<div class="veh-meta">Sin coincidencias</div>`;
+}
+
+function selectDepto(codigo){
+  view.depto = codigo;
+  renderDeptoSection();
+}
+
+let deptosCache = null;
+async function ensureDeptosLoaded(){
+  if(deptosCache) return deptosCache;
+  const res = await api('deptos', {});
+  deptosCache = res.deptos || [];
+  return deptosCache;
+}
+
+/* ---- Estacionamiento: grilla de disponibles, de a 6 ---- */
+async function renderEstacionamientoSection(){
+  const el = document.getElementById('estacionamientoSection');
+  if(!el) return;
+
+  if(view.tipoVehiculo === 'Especial'){
+    el.innerHTML = `
+      <input id="spotManualInput" class="plate-input" style="font-size:16px;letter-spacing:0;text-transform:none;width:100%" placeholder="Estacionamiento reservado (pendiente de definir)" value="${view.estacionamiento||''}" oninput="view.estacionamiento=this.value">
+      <div class="veh-meta" style="margin-top:6px">Los Especiales usan un estacionamiento fijo aparte del pool de visitas — avísame el número y lo dejo automático.</div>
+    `;
+    return;
+  }
+
+  if(view.estacionamiento){
+    el.innerHTML = `
+      <div class="selected-chip">
+        <span class="val">${view.estacionamiento}</span>
+        <span class="clear" onclick="view.estacionamiento=''; renderEstacionamientoSection();">cambiar</span>
+      </div>
+    `;
+    return;
+  }
+
+  if(!view.ocupadosCache){
+    el.innerHTML = `<div class="veh-meta">Cargando disponibilidad...</div>`;
+    const res = await api('estacionamientosOcupados', {});
+    view.ocupadosCache = (res.ocupados || []);
+  }
+
+  const ocupados = new Set(view.ocupadosCache);
+  const disponibles = [];
+  for(let i=1;i<=ESTACIONAMIENTO_MAX;i++){
+    const codigo = 'V-'+String(i).padStart(2,'0');
+    if(!ocupados.has(codigo)) disponibles.push(codigo);
+  }
+
+  if(disponibles.length === 0){
+    el.innerHTML = `
+      <div class="veh-meta" style="color:var(--red)">🅿️ Todos los estacionamientos (V-01 a V-${ESTACIONAMIENTO_MAX}) están ocupados.</div>
+      <input id="spotManualInput" class="plate-input" style="font-size:16px;letter-spacing:0;text-transform:none;width:100%;margin-top:8px" placeholder="Ingresar manualmente" oninput="view.estacionamiento=this.value">
+    `;
+    return;
+  }
+
+  const totalPages = Math.ceil(disponibles.length/6);
+  if(view.spotPage >= totalPages) view.spotPage = totalPages-1;
+  const pageItems = disponibles.slice(view.spotPage*6, view.spotPage*6+6);
+
+  el.innerHTML = `
+    <div class="veh-meta">${disponibles.length} disponibles de ${ESTACIONAMIENTO_MAX}</div>
+    <div class="spot-grid">
+      ${pageItems.map(c=>`<div class="spot-btn" onclick="selectSpot('${c}')">${c}</div>`).join('')}
+    </div>
+    ${totalPages>1?`
+      <div class="spot-pager">
+        <span class="icon-btn" onclick="cambiarPaginaSpot(-1)" style="${view.spotPage<=0?'opacity:.4;pointer-events:none':''}">← Anteriores</span>
+        <span>Página ${view.spotPage+1} de ${totalPages}</span>
+        <span class="icon-btn" onclick="cambiarPaginaSpot(1)" style="${view.spotPage>=totalPages-1?'opacity:.4;pointer-events:none':''}">Siguientes →</span>
+      </div>
+    `:''}
+  `;
+}
+
+function cambiarPaginaSpot(delta){
+  view.spotPage += delta;
+  renderEstacionamientoSection();
+}
+
+function selectSpot(codigo){
+  view.estacionamiento = codigo;
+  renderEstacionamientoSection();
 }
 
 function setCondicion(cond){
@@ -351,21 +504,14 @@ function setCondicion(cond){
   document.getElementById('condSeguimiento').classList.toggle('selected', cond==='seguimiento');
 }
 
-let deptosCache = null;
-async function ensureDeptosLoaded(){
-  if(deptosCache) return deptosCache;
-  const res = await api('deptos', {});
-  deptosCache = res.deptos || [];
-  const dl = document.getElementById('deptosList');
-  if(dl) dl.innerHTML = deptosCache.map(d=>`<option value="${d}">`).join('');
-  return deptosCache;
-}
-
 function setTipo(tipo){
   view.tipoVehiculo = tipo;
   document.getElementById('toggleVisita').classList.toggle('selected', tipo==='Visita');
   document.getElementById('toggleProveedor').classList.toggle('selected', tipo==='Proveedor');
   document.getElementById('toggleEspecial').classList.toggle('selected', tipo==='Especial');
+  view.estacionamiento = '';
+  view.spotPage = 0;
+  renderEstacionamientoSection();
 }
 
 async function onPhoto(e){
@@ -380,6 +526,7 @@ async function onPhoto(e){
 }
 
 async function confirmEntry(){
+  if(!view.estacionamiento){ toast('Selecciona un estacionamiento','red'); return; }
   if(view.condicion === 'prohibido'){
     showProhibidoWarningSheet();
     return;
@@ -403,11 +550,9 @@ function showProhibidoWarningSheet(){
 }
 
 async function procederConIngreso(){
-  const spot = document.getElementById('spotSelect').value;
-  const depto = document.getElementById('deptoInput').value.trim();
   const res = await api('ingreso', {
-    patente: view.plate, tipoVehiculo: view.tipoVehiculo, estacionamiento: spot,
-    origen: ORIGEN, fotoBase64: view.tempPhoto, depto: depto, condicion: view.condicion || ''
+    patente: view.plate, tipoVehiculo: view.tipoVehiculo, estacionamiento: view.estacionamiento,
+    origen: ORIGEN, fotoBase64: view.tempPhoto, depto: view.depto || '', condicion: view.condicion || ''
   });
   if(res.error){ toast(res.error,'red'); return; }
   toast('Ingreso registrado · '+view.plate,'green');
@@ -484,7 +629,7 @@ function renderActive(){
         <div class="kv"><span class="k">Origen</span><span class="v" style="font-size:13px">${r.origen}</span></div>
       </div>
       <div class="card-row" style="margin-bottom:0">
-        <div class="kv"><span class="k">Hora de ingreso</span><span class="v">${fmtTime(r.hora_ingreso)}</span></div>
+        <div class="kv"><span class="k">Hora de ingreso</span><span class="v">${fmtDate(r.hora_ingreso)} ${fmtTime(r.hora_ingreso)}</span></div>
       </div>
       <div class="status-band ${statusClass}">
         <span>${statusLabel}</span>
